@@ -1,0 +1,84 @@
+// Copyright 2025 NASA Johnson Space Center
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+#pragma once
+
+#include <Eigen/Dense>
+#include <string>
+#include <vector>
+
+#include <control_toolbox/pid.hpp>
+#include <joint_limits/joint_limits.hpp>
+
+namespace mujoco_ros2_simulation
+{
+
+/**
+ * Wrapper for mujoco actuators and relevant ROS HW interface data.
+ */
+struct JointState
+{
+  std::string name;
+  double position;
+  double velocity;
+  double effort;
+  double position_command;
+  double velocity_command;
+  double effort_command;
+  double min_position_command;
+  double max_position_command;
+  double min_velocity_command;
+  double max_velocity_command;
+  double min_effort_command;
+  double max_effort_command;
+  control_toolbox::Pid position_pid;
+  control_toolbox::Pid velocity_pid;
+  bool is_position_control_enabled{ false };
+  bool is_velocity_control_enabled{ false };
+  bool is_effort_control_enabled{ false };
+  bool is_pid_enabled{ false };
+  joint_limits::JointLimits joint_limits;
+  bool is_mimic{ false };
+  int mimicked_joint_index;
+  double mimic_multiplier;
+  int mj_joint_type;
+  int mj_pos_adr;
+  int mj_vel_adr;
+  int mj_actuator_id;
+};
+
+template <typename T>
+struct SensorData
+{
+  std::string name;
+  T data;
+  int mj_sensor_index;
+};
+
+struct FTSensorData
+{
+  std::string name;
+  SensorData<Eigen::Vector3d> force;
+  SensorData<Eigen::Vector3d> torque;
+};
+
+struct IMUSensorData
+{
+  std::string name;
+  SensorData<Eigen::Quaternion<double>> orientation;
+  SensorData<Eigen::Vector3d> angular_velocity;
+  SensorData<Eigen::Vector3d> linear_acceleration;
+};
+
+}  // namespace mujoco_ros2_simulation

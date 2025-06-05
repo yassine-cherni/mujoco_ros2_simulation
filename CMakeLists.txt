@@ -1,4 +1,5 @@
 cmake_minimum_required(VERSION 3.8)
+
 project(mujoco_ros2_simulation)
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
@@ -7,9 +8,14 @@ endif()
 
 # find dependencies
 find_package(ament_cmake REQUIRED)
+find_package(control_toolbox REQUIRED)
+find_package(controller_manager REQUIRED)
 find_package(glfw3 REQUIRED)
-find_package(Threads REQUIRED)
+find_package(hardware_interface REQUIRED)
+find_package(pluginlib REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(rclcpp_lifecycle REQUIRED)
+find_package(Threads REQUIRED)
 
 set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 
@@ -57,6 +63,9 @@ set(SIMULATE_DIR $ENV{MUJOCO_DIR}/simulate)
 
 # Simulate library
 add_library(platform_ui_adapter OBJECT)
+set_target_properties(platform_ui_adapter PROPERTIES
+  POSITION_INDEPENDENT_CODE ON
+)
 target_sources(
   platform_ui_adapter
   PUBLIC ${SIMULATE_DIR}/glfw_adapter.h ${SIMULATE_DIR}/glfw_dispatch.h ${SIMULATE_DIR}/platform_ui_adapter.h
@@ -70,9 +79,11 @@ target_link_libraries(platform_ui_adapter PUBLIC ${MUJOCO_LIB})
 add_library(mujoco::platform_ui_adapter ALIAS platform_ui_adapter)
 
 add_library(libsimulate STATIC $<TARGET_OBJECTS:platform_ui_adapter>)
-set_target_properties(libsimulate PROPERTIES OUTPUT_NAME simulate)
 add_library(mujoco::libsimulate ALIAS libsimulate)
-
+set_target_properties(libsimulate PROPERTIES
+  OUTPUT_NAME simulate
+  POSITION_INDEPENDENT_CODE ON
+)
 target_sources(
   libsimulate
   PUBLIC ${SIMULATE_DIR}/simulate.h
@@ -82,34 +93,36 @@ target_include_directories(libsimulate PUBLIC ${SIMULATE_DIR} ${MUJOCO_INCLUDE_D
 target_link_libraries(libsimulate PUBLIC lodepng mujoco::platform_ui_adapter ${MUJOCO_LIB})
 target_compile_options(libsimulate PRIVATE -Wno-missing-field-initializers)
 
-
-add_executable(mujoco_simulate
-  src/mujoco_simulate.cpp
+# Mujoco ROS 2 control system interface (this package)
+add_library(mujoco_ros2_simulation SHARED
+    src/mujoco_system_interface.cpp
 )
-target_include_directories(mujoco_simulate PUBLIC
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-  $<INSTALL_INTERFACE:include>
-  ${MUJOCO_INCLUDE_DIR})
-target_compile_features(mujoco_simulate PUBLIC c_std_99 cxx_std_17)  # Require C99 and C++17
-
-ament_target_dependencies(mujoco_simulate
+ament_target_dependencies(mujoco_ros2_simulation
+  control_toolbox
+  controller_manager
+  hardware_interface
+  pluginlib
   rclcpp
+  rclcpp_lifecycle
 )
-
-target_link_libraries(mujoco_simulate
+target_link_libraries(mujoco_ros2_simulation
   ${MUJOCO_LIB}
   mujoco::libsimulate
   Threads::Threads
   lodepng
-  glfw)
-
-install(TARGETS mujoco_simulate
-  DESTINATION lib/${PROJECT_NAME})
-
-
-install(DIRECTORY launch
-  DESTINATION share/${PROJECT_NAME}
+  glfw
 )
+target_include_directories(mujoco_ros2_simulation PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+  ${MUJOCO_INCLUDE_DIR}
+)
+install(TARGETS mujoco_ros2_simulation
+  ARCHIVE DESTINATION lib/${PROJECT_NAME}
+  LIBRARY DESTINATION lib/${PROJECT_NAME}
+)
+
+pluginlib_export_plugin_description_file(hardware_interface mujoco_system_interface_plugin.xml)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
