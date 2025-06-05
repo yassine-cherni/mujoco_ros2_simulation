@@ -66,7 +66,7 @@ private:
   void set_initial_pose();
 
   // For spinning the physics simulation
-  void PhysicsLoop(mujoco::Simulate& sim);
+  void PhysicsLoop();
 
   // System information
   hardware_interface::HardwareInfo system_info_;

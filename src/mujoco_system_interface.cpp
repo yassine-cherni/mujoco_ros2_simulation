@@ -773,7 +773,7 @@ void MujocoSystemInterface::set_initial_pose()
 }
 
 // simulate in background thread (while rendering in main thread)
-void MujocoSystemInterface::PhysicsLoop(mj::Simulate& sim)
+void MujocoSystemInterface::PhysicsLoop()
 {
   // cpu-sim synchronization point
   std::chrono::time_point<mj::Simulate::Clock> syncCPU;
@@ -782,62 +782,9 @@ void MujocoSystemInterface::PhysicsLoop(mj::Simulate& sim)
   // run until asked to exit
   while (!sim_->exitrequest.load())
   {
-    if (sim_->droploadrequest.load())
-    {
-      sim_->LoadMessage(sim_->dropfilename);
-      mjModel* mnew = LoadModel(sim_->dropfilename, *sim_);
-      sim_->droploadrequest.store(false);
-
-      mjData* dnew = nullptr;
-      if (mnew)
-        dnew = mj_makeData(mnew);
-      if (dnew)
-      {
-        sim_->Load(mnew, dnew, sim_->dropfilename);
-
-        // lock the sim mutex
-        const std::unique_lock<std::recursive_mutex> lock(*sim_mutex_);
-
-        mj_deleteData(mj_data_);
-        mj_deleteModel(mj_model_);
-
-        mj_model_ = mnew;
-        mj_data_ = dnew;
-        mj_forward(mj_model_, mj_data_);
-      }
-      else
-      {
-        sim_->LoadMessageClear();
-      }
-    }
-
-    if (sim_->uiloadrequest.load())
-    {
-      sim_->uiloadrequest.fetch_sub(1);
-      sim_->LoadMessage(sim_->filename);
-      mjModel* mnew = LoadModel(sim_->filename, sim);
-      mjData* dnew = nullptr;
-      if (mnew)
-        dnew = mj_makeData(mnew);
-      if (dnew)
-      {
-        sim_->Load(mnew, dnew, sim_->filename);
-
-        // lock the sim mutex
-        const std::unique_lock<std::recursive_mutex> lock(*sim_mutex_);
-
-        mj_deleteData(mj_data_);
-        mj_deleteModel(mj_model_);
-
-        mj_model_ = mnew;
-        mj_data_ = dnew;
-        mj_forward(mj_model_, mj_data_);
-      }
-      else
-      {
-        sim_->LoadMessageClear();
-      }
-    }
+    // TODO: We could support reloading the model as the full simulate app does, but it
+    //       may require significant changes in the HW interface to verify.
+    //       https://github.com/google-deepmind/mujoco/blob/3.3.2/simulate/main.cc#L279
 
     // sleep for 1 ms or yield, to let main thread run
     //  yield results in busy wait - which has better timing but kills battery
