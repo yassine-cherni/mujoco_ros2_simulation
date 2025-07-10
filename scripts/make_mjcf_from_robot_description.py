@@ -141,7 +141,7 @@ def replace_package_names(xml_data):
     # Replace all of the package looks up with absolute paths
     for package_name in package_names:
         old_string = f"package://{package_name}/"
-        replace_string = f"{get_package_prefix(package_name)}/share/{package_name}/"
+        replace_string = f"{get_package_share_directory(package_name)}/"
         print(f"replacing {old_string} with {replace_string}")
         xml_data = xml_data.replace(old_string, replace_string)
 
