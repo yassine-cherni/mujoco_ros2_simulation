@@ -807,11 +807,12 @@ void MujocoSystemInterface::register_sensors(const hardware_interface::HardwareI
     {
       RCLCPP_INFO_STREAM(rclcpp::get_logger("MujocoSystemInterface"),
                          "Skipping sensor in ros2_control xacro: " << sensor_name);
+      continue;
     }
     const auto mujoco_type = sensor.parameters.at("mujoco_type");
 
     // If there is a specific sensor name provided we use that, otherwise we assume the mujoco model's
-    // sensor is named identiacally to the ros2_control hardware interface's.
+    // sensor is named identically to the ros2_control hardware interface's.
     std::string mujoco_sensor_name;
     if (sensor.parameters.count("mujoco_sensor_name") == 0)
     {
