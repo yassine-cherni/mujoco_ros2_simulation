@@ -25,10 +25,11 @@
 
 #include <GLFW/glfw3.h>
 #include <mujoco/mujoco.h>
-#include <rclcpp/rclcpp.hpp>
 
+#include <hardware_interface/hardware_info.hpp>
 #include <rclcpp/node.hpp>
 #include <rclcpp/publisher.hpp>
+#include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/camera_info.hpp>
 #include <sensor_msgs/msg/image.hpp>
 
@@ -42,6 +43,10 @@ struct CameraData
 
   std::string name;
   std::string frame_name;
+  std::string info_topic;
+  std::string image_topic;
+  std::string depth_topic;
+
   uint32_t width;
   uint32_t height;
 
@@ -101,6 +106,11 @@ public:
    */
   void close();
 
+  /**
+   * @brief Parses camera information from the mujoco model.
+   */
+  void register_cameras(const hardware_interface::HardwareInfo& hardware_info);
+
 private:
   /**
    * @brief Initializes the rendering context and starts processing at 5 hz.
@@ -111,11 +121,6 @@ private:
    * @brief Updates the camera images and publishes info, images, and depth maps.
    */
   void update();
-
-  /**
-   * @brief Parses camera information from the mujoco model.
-   */
-  void register_cameras();
 
   rclcpp::Node::SharedPtr node_;
 

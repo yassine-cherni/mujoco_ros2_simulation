@@ -384,6 +384,7 @@ hardware_interface::CallbackReturn MujocoSystemInterface::on_init(const hardware
   // Ready cameras
   RCLCPP_INFO(rclcpp::get_logger("MujocoSystemInterface"), "Initializing cameras...");
   cameras_ = std::make_unique<MujocoCameras>(mujoco_node_, sim_mutex_, mj_data_, mj_model_);
+  cameras_->register_cameras(info);
 
   // When the interface is activated, we start the physics engine.
   physics_thread_ = std::thread([this]() {
@@ -796,8 +797,6 @@ void MujocoSystemInterface::register_joints(const hardware_interface::HardwareIn
 
 void MujocoSystemInterface::register_sensors(const hardware_interface::HardwareInfo& hardware_info)
 {
-  // We require that force/torque sensors end with "_fts" in the name,
-  // and IMU sensor end with "_imu" in the name.
   for (size_t sensor_index = 0; sensor_index < hardware_info.sensors.size(); sensor_index++)
   {
     auto sensor = hardware_info.sensors.at(sensor_index);
@@ -806,7 +805,7 @@ void MujocoSystemInterface::register_sensors(const hardware_interface::HardwareI
     if (sensor.parameters.count("mujoco_type") == 0)
     {
       RCLCPP_INFO_STREAM(rclcpp::get_logger("MujocoSystemInterface"),
-                         "Skipping sensor in ros2_control xacro: " << sensor_name);
+                         "Skipping sensor interface in ros2_control xacro: " << sensor_name);
       continue;
     }
     const auto mujoco_type = sensor.parameters.at("mujoco_type");

@@ -26,12 +26,119 @@ using namespace std::chrono_literals;
 namespace mujoco_ros2_simulation
 {
 
+/**
+ * @brief Returns the sensor's component info for the provided sensor name, if it exists.
+ */
+std::optional<hardware_interface::ComponentInfo>
+get_camera_sensor(const hardware_interface::HardwareInfo& hardware_info, const std::string& name)
+{
+  for (size_t sensor_index = 0; sensor_index < hardware_info.sensors.size(); sensor_index++)
+  {
+    const auto& sensor = hardware_info.sensors.at(sensor_index);
+    if (hardware_info.sensors.at(sensor_index).name == name)
+    {
+      return sensor;
+    }
+  }
+  return std::nullopt;
+}
+
 MujocoCameras::MujocoCameras(rclcpp::Node::SharedPtr& node, std::recursive_mutex* sim_mutex, mjData* mujoco_data,
                              mjModel* mujoco_model)
   : node_(node), sim_mutex_(sim_mutex), mj_data_(mujoco_data), mj_model_(mujoco_model)
 {
-  // Add user cameras
-  register_cameras();
+}
+
+void MujocoCameras::register_cameras(const hardware_interface::HardwareInfo& hardware_info)
+{
+  cameras_.resize(0);
+  for (auto i = 0; i < mj_model_->ncam; ++i)
+  {
+    const char* cam_name = mj_model_->names + mj_model_->name_camadr[i];
+    const int* cam_resolution = mj_model_->cam_resolution + 2 * i;
+    const mjtNum cam_fovy = mj_model_->cam_fovy[i];
+
+    // Construct CameraData wrapper and set defaults
+    CameraData camera;
+    camera.name = cam_name;
+    camera.mjv_cam.type = mjCAMERA_FIXED;
+    camera.mjv_cam.fixedcamid = i;
+    camera.width = static_cast<uint32_t>(cam_resolution[0]);
+    camera.height = static_cast<uint32_t>(cam_resolution[1]);
+    camera.viewport = { 0, 0, cam_resolution[0], cam_resolution[1] };
+
+    // If the hardware_info has a camera of the same name then we pull parameters from there.
+    const auto camera_info_maybe = get_camera_sensor(hardware_info, cam_name);
+    if (camera_info_maybe.has_value())
+    {
+      const auto camera_info = camera_info_maybe.value();
+      camera.frame_name = camera_info.parameters.at("frame_name");
+      camera.info_topic = camera_info.parameters.at("info_topic");
+      camera.image_topic = camera_info.parameters.at("image_topic");
+      camera.depth_topic = camera_info.parameters.at("depth_topic");
+    }
+    // Otherwise set default values for the frame and topics.
+    else
+    {
+      camera.frame_name = camera.name + "_frame";
+      ;
+      camera.info_topic = camera.name + "/camera_info";
+      camera.image_topic = camera.name + "/color";
+      camera.depth_topic = camera.name + "/depth";
+    }
+
+    RCLCPP_INFO_STREAM(node_->get_logger(), "Adding camera: " << cam_name);
+    RCLCPP_INFO_STREAM(node_->get_logger(), "    frame_name: " << camera.frame_name);
+    RCLCPP_INFO_STREAM(node_->get_logger(), "    info_topic: " << camera.info_topic);
+    RCLCPP_INFO_STREAM(node_->get_logger(), "    image_topic: " << camera.image_topic);
+    RCLCPP_INFO_STREAM(node_->get_logger(), "    depth_topic: " << camera.depth_topic);
+
+    // Configure publishers
+    camera.camera_info_pub = node_->create_publisher<sensor_msgs::msg::CameraInfo>(camera.info_topic, 1);
+    camera.image_pub = node_->create_publisher<sensor_msgs::msg::Image>(camera.image_topic, 1);
+    camera.depth_image_pub = node_->create_publisher<sensor_msgs::msg::Image>(camera.depth_topic, 1);
+
+    // Setup containers for color image data
+    camera.image.header.frame_id = camera.frame_name;
+
+    const auto image_size = camera.width * camera.height * 3;
+    camera.image_buffer.resize(image_size);
+    camera.image.data.resize(image_size);
+    camera.image.width = camera.width;
+    camera.image.height = camera.height;
+    camera.image.step = camera.width * 3;
+    camera.image.encoding = sensor_msgs::image_encodings::RGB8;
+
+    // Depth image data
+    camera.depth_image.header.frame_id = camera.frame_name;
+    camera.depth_buffer.resize(camera.width * camera.height);
+    camera.depth_buffer_flipped.resize(camera.width * camera.height);
+    camera.depth_image.data.resize(camera.width * camera.height * sizeof(float));
+    camera.depth_image.width = camera.width;
+    camera.depth_image.height = camera.height;
+    camera.depth_image.step = camera.width * sizeof(float);
+    camera.depth_image.encoding = sensor_msgs::image_encodings::TYPE_32FC1;
+
+    // Camera info
+    camera.camera_info.header.frame_id = camera.frame_name;
+    camera.camera_info.width = camera.width;
+    camera.camera_info.height = camera.height;
+    camera.camera_info.distortion_model = "plumb_bob";
+    camera.camera_info.k.fill(0.0);
+    camera.camera_info.r.fill(0.0);
+    camera.camera_info.p.fill(0.0);
+    camera.camera_info.d.resize(5, 0.0);
+
+    double focal_scaling = (1.0 / std::tan((cam_fovy * M_PI / 180.0) / 2.0)) * camera.height / 2.0;
+    camera.camera_info.k[0] = camera.camera_info.p[0] = focal_scaling;
+    camera.camera_info.k[2] = camera.camera_info.p[2] = static_cast<double>(camera.width) / 2.0;
+    camera.camera_info.k[4] = camera.camera_info.p[5] = focal_scaling;
+    camera.camera_info.k[5] = camera.camera_info.p[6] = static_cast<double>(camera.height) / 2.0;
+    camera.camera_info.k[8] = camera.camera_info.p[10] = 1.0;
+
+    // Add to list of cameras
+    cameras_.push_back(camera);
+  }
 }
 
 void MujocoCameras::init()
@@ -134,78 +241,6 @@ void MujocoCameras::update()
     camera.image_pub->publish(camera.image);
     camera.depth_image_pub->publish(camera.depth_image);
     camera.camera_info_pub->publish(camera.camera_info);
-  }
-}
-
-void MujocoCameras::register_cameras()
-{
-  cameras_.resize(0);
-  for (auto i = 0; i < mj_model_->ncam; ++i)
-  {
-    const char* cam_name = mj_model_->names + mj_model_->name_camadr[i];
-    const int* cam_resolution = mj_model_->cam_resolution + 2 * i;
-    const mjtNum cam_fovy = mj_model_->cam_fovy[i];
-
-    RCLCPP_INFO_STREAM(node_->get_logger(), "Adding camera: " << cam_name);
-
-    // Construct CameraData wrapper and set defaults
-    CameraData camera;
-    camera.name = cam_name;
-    camera.mjv_cam.type = mjCAMERA_FIXED;
-    camera.mjv_cam.fixedcamid = i;
-    camera.width = static_cast<uint32_t>(cam_resolution[0]);
-    camera.height = static_cast<uint32_t>(cam_resolution[1]);
-    camera.viewport = { 0, 0, cam_resolution[0], cam_resolution[1] };
-
-    // TODO(eholum): Ensure that the camera is attached to the expected pose.
-    // For now assume that's the case.
-    camera.frame_name = camera.name + "_optical_frame";
-
-    // Configure publishers
-    camera.image_pub = node_->create_publisher<sensor_msgs::msg::Image>(camera.name + "/color", 1);
-    camera.depth_image_pub = node_->create_publisher<sensor_msgs::msg::Image>(camera.name + "/depth", 1);
-    camera.camera_info_pub = node_->create_publisher<sensor_msgs::msg::CameraInfo>(camera.name + "/camera_info", 1);
-
-    // Setup containers for color image data
-    camera.image.header.frame_id = camera.frame_name;
-
-    const auto image_size = camera.width * camera.height * 3;
-    camera.image_buffer.resize(image_size);
-    camera.image.data.resize(image_size);
-    camera.image.width = camera.width;
-    camera.image.height = camera.height;
-    camera.image.step = camera.width * 3;
-    camera.image.encoding = sensor_msgs::image_encodings::RGB8;
-
-    // Depth image data
-    camera.depth_image.header.frame_id = camera.frame_name;
-    camera.depth_buffer.resize(camera.width * camera.height);
-    camera.depth_buffer_flipped.resize(camera.width * camera.height);
-    camera.depth_image.data.resize(camera.width * camera.height * sizeof(float));
-    camera.depth_image.width = camera.width;
-    camera.depth_image.height = camera.height;
-    camera.depth_image.step = camera.width * sizeof(float);
-    camera.depth_image.encoding = sensor_msgs::image_encodings::TYPE_32FC1;
-
-    // Camera info
-    camera.camera_info.header.frame_id = camera.frame_name;
-    camera.camera_info.width = camera.width;
-    camera.camera_info.height = camera.height;
-    camera.camera_info.distortion_model = "plumb_bob";
-    camera.camera_info.k.fill(0.0);
-    camera.camera_info.r.fill(0.0);
-    camera.camera_info.p.fill(0.0);
-    camera.camera_info.d.resize(5, 0.0);
-
-    double focal_scaling = (1.0 / std::tan((cam_fovy * M_PI / 180.0) / 2.0)) * camera.height / 2.0;
-    camera.camera_info.k[0] = camera.camera_info.p[0] = focal_scaling;
-    camera.camera_info.k[2] = camera.camera_info.p[2] = static_cast<double>(camera.width) / 2.0;
-    camera.camera_info.k[4] = camera.camera_info.p[5] = focal_scaling;
-    camera.camera_info.k[5] = camera.camera_info.p[6] = static_cast<double>(camera.height) / 2.0;
-    camera.camera_info.k[8] = camera.camera_info.p[10] = 1.0;
-
-    // Add to list of cameras
-    cameras_.push_back(camera);
   }
 }
 
