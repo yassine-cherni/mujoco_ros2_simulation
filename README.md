@@ -169,15 +169,18 @@ Type: sensor_msgs/msg/Image
 
 ## Docker Development Workflow
 
-To try this out with the included [Dockerfile](./.docker/Dockerfile), use the provided scripts.
+This project includes a [Dockerfile](./.docker/Dockerfile) for development and testing in an isolated environment.
+Use the provided scripts to build and run the images.
+
+**Note**: you may need to give docker access to xhost with `xhost +local:docker` to ensure the container has access to the host UI.
+
 First, build a new image with default settings:
 
 ```bash
 ./docker/build.sh
 ```
 
-The attach to the image.
-**Note**: you may need to give docker access to xhost with `xhost +local:docker` to ensure the container has access to the host UI.
+The image can be started in a new shell with:
 
 ```bash
 ./docker/run.sh
