@@ -461,7 +461,7 @@ def update_non_obj_assets(dom, output_filepath):
     return dom
 
 
-def add_mujoco_inputs(dom, mujoco_inputs):
+def add_mujoco_inputs(dom, raw_inputs):
     """
     Copies all elements under the RAW_INPUTS_NAME xml tag directly in the provided dom.
     This is useful for adding things like actuators, options, or defaults. But any tag that
@@ -469,14 +469,10 @@ def add_mujoco_inputs(dom, mujoco_inputs):
     """
     root = dom.documentElement
 
-    # Copy in raw inputs to the final dom
-    for key in mujoco_inputs:
-        if key != RAW_INPUTS_NAME:
-            continue
-
-        raw_inputs = mujoco_inputs[key]
-        for entry in raw_inputs:
-            root.appendChild(entry)
+    for child in raw_inputs.childNodes:
+        if child.nodeType == child.ELEMENT_NODE:
+            imported_node = dom.importNode(child, True)
+            root.appendChild(imported_node)
 
     return dom
 
@@ -498,9 +494,9 @@ def parse_camera_information(mujoco_inputs):
     return cameras_dict
 
 
-def get_processed_mujoco_inputs(mujoco_inputs):
+def get_processed_mujoco_inputs(processed_inputs_element):
     """
-    Returns the processed inputs as dictionaries from the specified mujoco_inputs.
+    Returns the processed inputs as dictionaries from the specified processed_inputs_element.
 
     Right now this supports tags for decomposing meshes and adding cameras to sites.
     """
@@ -508,40 +504,45 @@ def get_processed_mujoco_inputs(mujoco_inputs):
     decompose_dict = dict()
     cameras_dict = dict()
 
-    if PROCESSED_INPUTS_NAME in mujoco_inputs:
-        for mujoco_input in mujoco_inputs[PROCESSED_INPUTS_NAME]:
-            for child in mujoco_input.childNodes:
-                # Grab meshes to decompose
-                if child.nodeType == child.ELEMENT_NODE and child.tagName == PROCSSED_INPUTS_DECOMPOSE_MESH:
-                    name = child.getAttribute("mesh_name")
-                    threshold = "0.05"
-                    if not child.hasAttribute("threshold"):
-                        print(f"defaulting threshold to 0.05 for decompose of {name}")
-                    else:
-                        threshold = child.getAttribute("threshold")
-                    print(f"Will decompose mesh with name: {name}")
-                    decompose_dict[name] = threshold
-                # Grab cameras
-                if child.nodeType == child.ELEMENT_NODE and child.tagName == PROCSSED_INPUTS_CAMERA:
-                    site_name = child.getAttribute("site")
-                    camera_element = None
-                    for camera_child in child.childNodes:
-                        if camera_child.nodeType == camera_child.ELEMENT_NODE and camera_child.tagName == "camera":
-                            camera_element = camera_child
+    if not processed_inputs_element:
+        return decompose_dict, cameras_dict
 
-                    if camera_element:
-                        print(f"Will add camera for site: {site_name}")
-                        cameras_dict[site_name] = camera_element
-                    else:
-                        print(f"Skipping possibly invalid camera from inputs - site: {site_name}")
+    for child in processed_inputs_element.childNodes:
+        if child.nodeType != child.ELEMENT_NODE:
+            continue
+
+        # Grab meshes to decompose
+        if child.tagName == PROCSSED_INPUTS_DECOMPOSE_MESH:
+            name = child.getAttribute("mesh_name")
+            threshold = "0.05"
+            if not child.hasAttribute("threshold"):
+                print(f"defaulting threshold to 0.05 for decompose of {name}")
+            else:
+                threshold = child.getAttribute("threshold")
+            print(f"Will decompose mesh with name: {name}")
+            decompose_dict[name] = threshold
+
+        # Grab cameras
+        if child.nodeType == child.ELEMENT_NODE and child.tagName == PROCSSED_INPUTS_CAMERA:
+            site_name = child.getAttribute("site")
+            camera_element = None
+            for camera_child in child.childNodes:
+                if camera_child.nodeType == camera_child.ELEMENT_NODE and camera_child.tagName == "camera":
+                    camera_element = camera_child
+
+            if camera_element:
+                print(f"Will add camera for site: {site_name}")
+                cameras_dict[site_name] = camera_element
+            else:
+                print(f"Skipping possibly invalid camera from inputs - site: {site_name}")
 
     return decompose_dict, cameras_dict
 
 
 def parse_inputs_xml(filename=None):
     """
-    Grabs a few additional xml settings from specified file. Supports the tags 'default',
-    'option', 'actuator', and 'sensor'. These will be included in the final xml.
+    This script can accept inputs in the form of an xml file. This allows users to inject data
+    into the MJCF that is not necessarily included in the URDF.
 
     E.g.,
 
@@ -579,7 +580,8 @@ def parse_inputs_xml(filename=None):
     if not filename:
         return mujoco_inputs
 
-    print(f"Parsing mujoco elements from {filename}")
+    print(f"Parsing mujoco elements from: {filename}")
+
     dom = minidom.parse(filename)
     root = dom.documentElement
 
@@ -588,15 +590,19 @@ def parse_inputs_xml(filename=None):
     if root.tagName != "mujoco_inputs":
         raise ValueError(f"Root tag in defaults xml must be 'mujoco_inputs', not {root.tagName}")
 
+    raw_inputs = None
+    processed_inputs = None
+
     for child in root.childNodes:
-        if not child.nodeType == child.ELEMENT_NODE:
+        if child.nodeType != child.ELEMENT_NODE:
             continue
 
-        if child.tagName not in mujoco_inputs:
-            mujoco_inputs[child.tagName] = []
-        mujoco_inputs[child.tagName].append(child)
+        if child.tagName == "raw_inputs":
+            raw_inputs = child
+        elif child.tagName == "processed_inputs":
+            processed_inputs = child
 
-    return mujoco_inputs
+    return raw_inputs, processed_inputs
 
 
 def add_free_joint(dom, urdf, joint_name="floating_base_joint"):
@@ -754,7 +760,7 @@ def add_cameras_from_sites(dom, cameras_dict):
 
 
 def fix_mujoco_description(
-    output_filepath, mesh_info_dict, mujoco_inputs, urdf, decompose_dict, cameras_dict, request_add_free_joint
+    output_filepath, mesh_info_dict, raw_inputs, urdf, decompose_dict, cameras_dict, request_add_free_joint
 ):
     full_filepath = f"{output_filepath}mujoco_description.xml"
     filename, extension = os.path.splitext(f"{output_filepath}mujoco_description.xml")
@@ -775,7 +781,7 @@ def fix_mujoco_description(
     dom = update_non_obj_assets(dom, output_filepath)
 
     # Add the mujoco input elements
-    dom = add_mujoco_inputs(dom, mujoco_inputs)
+    dom = add_mujoco_inputs(dom, raw_inputs)
 
     # Add links as sites
     dom = add_links_as_sites(urdf, dom, request_add_free_joint)
@@ -931,8 +937,8 @@ def main(args=None):
     convert_stl_to_obj = parsed_args.convert_stl_to_obj
 
     # Part inputs data
-    mujoco_inputs = parse_inputs_xml(parsed_args.mujoco_inputs)
-    decompose_dict, cameras_dict = get_processed_mujoco_inputs(mujoco_inputs)
+    raw_inputs, processed_inputs = parse_inputs_xml(parsed_args.mujoco_inputs)
+    decompose_dict, cameras_dict = get_processed_mujoco_inputs(processed_inputs)
 
     # Grab the output directory and ensure it ends with '/'
     output_filepath = os.path.join(parsed_args.output, "")
@@ -960,7 +966,7 @@ def main(args=None):
 
     # Converts objs for use in mujoco, adds tags, inputs, sites, and sensors to the final xml
     fix_mujoco_description(
-        output_filepath, mesh_info_dict, mujoco_inputs, urdf, decompose_dict, cameras_dict, request_add_free_joint
+        output_filepath, mesh_info_dict, raw_inputs, urdf, decompose_dict, cameras_dict, request_add_free_joint
     )
 
     shutil.copy2(f'{get_package_share_directory("mujoco_ros2_simulation")}/resources/scene.xml', output_filepath)

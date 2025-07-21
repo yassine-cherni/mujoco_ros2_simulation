@@ -43,7 +43,7 @@ A sample URDF and inputs file is provided in [test_robot.urdf](test/test_robot.u
 To convert the URDF, run the following from the repo root
 
 ```bash
-ros2 run mujoco_ros2_simulation make_mjcf_from_robot_description.py -u test/resources/test_robot.urdf  -m test/resources/test_inputs.xml -o /tmp/output/
+ros2 run mujoco_ros2_simulation make_mjcf_from_robot_description.py -u test/test_resources/test_robot.urdf  -m test/test_resources/test_inputs.xml -o /tmp/output/
 ```
 
 The `/tmp/output/` directory will contain all necessary assets and MJCF files that can be copied into the relevant locations in a config package.
