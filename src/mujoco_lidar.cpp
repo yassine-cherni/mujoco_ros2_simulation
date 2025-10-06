@@ -193,7 +193,7 @@ bool MujocoLidar::register_lidar(const hardware_interface::HardwareInfo& hardwar
 
     // Add this range to the sensor finders data array. There's technically no guarantee that the data is
     // sequential so we're just tracking this directly.
-    lidar_it->sensor_indexes[idx] = i;
+    lidar_it->sensor_indexes[idx] = mj_model_->sensor_adr[i];
   }
 
   // TODO: Verify that everything actually got filled in correctly...
