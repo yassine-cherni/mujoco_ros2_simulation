@@ -18,9 +18,11 @@
 # under the License.
 
 from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument
 from launch.substitutions import (
     Command,
     FindExecutable,
+    LaunchConfiguration,
     PathJoinSubstitution,
 )
 from launch_ros.actions import Node
@@ -29,6 +31,12 @@ from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description():
+
+    # Refer https://github.com/ros-controls/mujoco_ros2_simulation?tab=readme-ov-file#joints
+    use_pid = DeclareLaunchArgument(
+        "use_pid", default_value="false", description="If we should use PID control to enable other control modes"
+    )
+
     robot_description_content = Command(
         [
             PathJoinSubstitution([FindExecutable(name="xacro")]),
@@ -40,6 +48,9 @@ def generate_launch_description():
                     "test_robot.urdf",
                 ]
             ),
+            " ",
+            "use_pid:=",
+            LaunchConfiguration("use_pid"),
         ]
     )
 
@@ -91,6 +102,7 @@ def generate_launch_description():
 
     return LaunchDescription(
         [
+            use_pid,
             robot_state_publisher_node,
             control_node,
             spawn_joint_state_broadcaster,
